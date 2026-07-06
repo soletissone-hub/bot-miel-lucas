@@ -585,12 +585,16 @@ async def _confirmar_y_guardar(query, context: ContextTypes.DEFAULT_TYPE):
             f"  • {i['cantidad']}x {i['producto']}: {fmt_precio(i['cantidad'] * i['precio'])}"
             for i in items
         )
+        lineas_wa = "\n".join(
+            f"- {i['producto']} x{i['cantidad']}"
+            for i in items
+        )
         mensaje_wa = (
             f"Hola {nombre_cliente}! 🍯\n"
-            f"Tu pedido #{nro_pedido} de {BRAND_NAME}:\n"
-            f"{lineas}\n"
-            f"💰 Total: {fmt_precio(total_gral)}\n"
-            f"Cualquier consulta, avisame 😊"
+            f"Te confirmo tu pedido:\n"
+            f"{lineas_wa}\n"
+            f"*Total:* {fmt_precio(total_gral)}\n"
+            f"Gracias por tu compra 🍯✨"
         )
 
         telefono = cliente.get("Telefono", "") or ""
