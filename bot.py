@@ -139,6 +139,11 @@ def normalizar_cliente(row: dict) -> dict:
     return {
         "ID Cliente": row.get("ID Cliente", ""),
         "Nombre": nombre_mostrar(row, tipo),
+        # La columna "Cliente" de VENTAS tiene una validacion estricta que
+        # solo acepta valores de CLIENTES!C (Nombre Responsable) — hay que
+        # guardar siempre este nombre ahi, aunque el bot muestre otro en
+        # Telegram/WhatsApp.
+        "Nombre Responsable": (row.get("Nombre Responsable") or row.get("Nombre Local") or "").strip(),
         "Telefono": row.get("Telefono", ""),
         "Tipo de cliente": tipo,
     }
@@ -543,11 +548,12 @@ async def _confirmar_y_guardar(query, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("⏳ Guardando en Google Sheets…")
 
     try:
-        fecha          = datetime.now().strftime("%d/%m/%Y")
-        fecha_compacta = datetime.now().strftime("%Y%m%d")
-        nombre_cliente = cliente.get("Nombre", "")
-        nro_pedido     = f"{fecha_compacta}_{nombre_cliente}"
-        stock          = context.user_data.get("stock", {})
+        fecha             = datetime.now().strftime("%d/%m/%Y")
+        fecha_compacta    = datetime.now().strftime("%Y%m%d")
+        nombre_cliente    = cliente.get("Nombre", "")
+        nombre_responsable = cliente.get("Nombre Responsable") or nombre_cliente
+        nro_pedido        = f"{fecha_compacta}_{nombre_responsable}"
+        stock             = context.user_data.get("stock", {})
         total_gral     = sum(i["cantidad"] * i["precio"] for i in items)
 
         for item in items:
@@ -563,7 +569,7 @@ async def _confirmar_y_guardar(query, context: ContextTypes.DEFAULT_TYPE):
 
             fila = [
                 fecha,                        # A: Fecha
-                nombre_cliente,                # B: Cliente
+                nombre_responsable,             # B: Cliente
                 prod,                          # C: Producto
                 cant,                          # D: Cantidad
                 tipo_venta,                    # E: Tipo de venta
