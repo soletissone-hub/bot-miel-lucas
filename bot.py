@@ -30,12 +30,16 @@ SHEET_PRECIOS    = "CATALOGO"
 SHEET_VENTAS     = "VENTAS"
 
 TIPOS_CLIENTE_VALIDOS = ("Minorista", "Mayorista")
+ESTADOS_PEDIDO = ("Reservado", "Entregado sin pago", "Pagado", "Cancelado", "Entregado")
 
-# Estados del ConversationHandler
+# Estados del ConversationHandler de /nuevo
 (
     FILTRO_CLIENTE, BUSCAR_CLIENTE, ELEGIR_CLIENTE, ELEGIR_PRODUCTO, INGRESAR_CANTIDAD,
     CONFIRMAR_PRECIO, NC_RESPONSABLE, NC_TIPO, NC_TELEFONO, NC_DIRECCION, NC_LOCALIDAD,
 ) = range(11)
+
+# Estados del ConversationHandler de /estado
+EST_ELEGIR_PEDIDO, EST_ELEGIR_ESTADO = range(2)
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -77,6 +81,32 @@ def cargar_precios():
 def guardar_fila_venta(fila: list):
     ws = _spreadsheet().worksheet(SHEET_VENTAS)
     ws.append_row(fila, value_input_option="USER_ENTERED")
+
+def pedidos_abiertos():
+    records = _spreadsheet().worksheet(SHEET_VENTAS).get_all_records()
+    pedidos = {}
+    for r in records:
+        estado = r.get("Estado")
+        if estado not in ("Reservado", "Entregado sin pago"):
+            continue
+        np = r.get("Nro Pedido")
+        if not np:
+            continue
+        pedidos.setdefault(np, {"cliente": r.get("Cliente", ""), "estado": estado})
+    return pedidos
+
+def actualizar_estado_pedido(nro_pedido: str, nuevo_estado: str) -> int:
+    ws   = _spreadsheet().worksheet(SHEET_VENTAS)
+    vals = ws.get_all_values()
+    headers = vals[0]
+    col_np     = headers.index("Nro Pedido")
+    col_estado = headers.index("Estado") + 1  # gspread usa columnas 1-indexadas
+
+    filas = [i for i, row in enumerate(vals[1:], start=2)
+             if len(row) > col_np and row[col_np] == nro_pedido]
+    for fila in filas:
+        ws.update_cell(fila, col_estado, nuevo_estado)
+    return len(filas)
 
 def guardar_cliente_nuevo(nombre_local, nombre_responsable, tipo_cliente, telefono, direccion, localidad):
     # "ID Cliente" (col A) y "Whatsapp" (col F) se calculan solos con un
@@ -167,6 +197,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🛒 /nuevo      → Cargar un pedido\n"
         "📦 /stock      → Ver stock disponible\n"
         "⏳ /pendientes → Pedidos sin entregar\n"
+        "🔄 /estado     → Cambiar el estado de un pedido\n"
         "👥 /clientes   → Lista de clientes\n"
         "❌ /cancelar   → Cancelar operación actual",
         parse_mode="Markdown",
@@ -216,6 +247,65 @@ async def cmd_pendientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(texto, parse_mode="Markdown")
     except Exception as e:
         await msg.edit_text(f"❌ Error: {e}")
+
+# ─────────────────────────────────────────────
+#  CAMBIAR ESTADO DE UN PEDIDO
+# ─────────────────────────────────────────────
+
+async def cmd_estado(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = await update.message.reply_text("⏳ Cargando pedidos…")
+    try:
+        pedidos = pedidos_abiertos()
+        if not pedidos:
+            await msg.edit_text("✅ No hay pedidos Reservados ni Entregados sin pago.")
+            return ConversationHandler.END
+
+        context.user_data["pedidos_estado"] = pedidos
+        teclado = [
+            [InlineKeyboardButton(f"{np} — {info['cliente']} ({info['estado']})", callback_data=f"pedido|{np}")]
+            for np, info in pedidos.items()
+        ]
+        await msg.edit_text(
+            "🔄 *¿Qué pedido querés actualizar?*",
+            reply_markup=InlineKeyboardMarkup(teclado),
+            parse_mode="Markdown",
+        )
+        return EST_ELEGIR_PEDIDO
+    except Exception as e:
+        await msg.edit_text(f"❌ Error al cargar pedidos: {e}")
+        return ConversationHandler.END
+
+async def cb_elegir_pedido_estado(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    _, nro_pedido = query.data.split("|", 1)
+    context.user_data["pedido_actual"] = nro_pedido
+
+    teclado = [[InlineKeyboardButton(e, callback_data=f"nuevoestado|{e}")] for e in ESTADOS_PEDIDO]
+    await query.edit_message_text(
+        f"🔄 Pedido *{nro_pedido}*\n¿Nuevo estado?",
+        reply_markup=InlineKeyboardMarkup(teclado),
+        parse_mode="Markdown",
+    )
+    return EST_ELEGIR_ESTADO
+
+async def cb_elegir_nuevo_estado(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    _, nuevo_estado = query.data.split("|", 1)
+    nro_pedido = context.user_data["pedido_actual"]
+
+    await query.edit_message_text("⏳ Actualizando…")
+    try:
+        cantidad_filas = actualizar_estado_pedido(nro_pedido, nuevo_estado)
+        await query.edit_message_text(
+            f"✅ Pedido *{nro_pedido}* → *{nuevo_estado}* ({cantidad_filas} línea/s actualizadas)",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error al actualizar: {e}")
+
+    return ConversationHandler.END
 
 async def cmd_clientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("⏳ Cargando…")
@@ -710,11 +800,25 @@ def main():
         fallbacks=[CommandHandler("cancelar", cmd_cancelar)],
     )
 
+    conv_estado = ConversationHandler(
+        entry_points=[CommandHandler("estado", cmd_estado)],
+        states={
+            EST_ELEGIR_PEDIDO: [
+                CallbackQueryHandler(cb_elegir_pedido_estado, pattern=r"^pedido\|"),
+            ],
+            EST_ELEGIR_ESTADO: [
+                CallbackQueryHandler(cb_elegir_nuevo_estado, pattern=r"^nuevoestado\|"),
+            ],
+        },
+        fallbacks=[CommandHandler("cancelar", cmd_cancelar)],
+    )
+
     app.add_handler(CommandHandler("start",      cmd_start))
     app.add_handler(CommandHandler("stock",      cmd_stock))
     app.add_handler(CommandHandler("pendientes", cmd_pendientes))
     app.add_handler(CommandHandler("clientes",   cmd_clientes))
     app.add_handler(conv)
+    app.add_handler(conv_estado)
 
     print("Bot iniciado. Ctrl+C para detener.")
     app.run_polling()
