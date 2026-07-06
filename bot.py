@@ -568,22 +568,23 @@ async def _confirmar_y_guardar(query, context: ContextTypes.DEFAULT_TYPE):
             m_total    = m_unit * cant
 
             fila = [
-                fecha,                        # A: Fecha
-                nombre_responsable,             # B: Cliente
-                prod,                          # C: Producto
-                cant,                          # D: Cantidad
-                tipo_venta,                    # E: Tipo de venta
-                precio,                        # F: Precio unitario
-                total,                         # G: Total
-                "Reservado",                   # H: Estado
-                disp,                          # I: Stock disponible del producto elegido
-                chequeo,                       # J: Chequeo
-                m_total,                       # K: Margen total
-                m_unit,                        # L: Margen unitario
-                "",                            # M: Whatsapp
-                nro_pedido,                    # N: Nro Pedido
-                "",                            # O: Cubre con pendiente?
-                "",                            # P: Cuanto queda post reservas
+                fecha,                          # A: Fecha
+                nombre_cliente,                 # B: Nombre local (negocio si es mayorista)
+                nombre_responsable,             # C: Cliente (validado contra CLIENTES!C)
+                prod,                           # D: Producto
+                cant,                           # E: Cantidad
+                tipo_venta,                     # F: Tipo de venta
+                precio,                         # G: Precio unitario
+                total,                          # H: Total
+                "Reservado",                    # I: Estado
+                disp,                           # J: Stock disponible del producto elegido
+                chequeo,                        # K: Chequeo
+                m_total,                        # L: Margen total
+                m_unit,                         # M: Margen unitario
+                "",                             # N: Whatsapp
+                nro_pedido,                     # O: Nro Pedido
+                "",                             # P: Cubre con pendiente?
+                "",                             # Q: Cuanto queda post reservas
             ]
             guardar_fila_venta(fila)
 
