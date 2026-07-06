@@ -123,13 +123,22 @@ def link_whatsapp(telefono, mensaje: str) -> str:
         tel = "549" + tel
     return f"https://wa.me/{tel}?text={quote(mensaje)}"
 
+def nombre_mostrar(row: dict, tipo: str = None) -> str:
+    # Minorista -> el responsable (la persona que compra).
+    # Mayorista -> el nombre del negocio.
+    if tipo is None:
+        tipo = (row.get("Tipo de cliente") or "").strip()
+    if tipo == "Minorista":
+        return (row.get("Nombre Responsable") or row.get("Nombre Local") or "").strip()
+    return (row.get("Nombre Local") or row.get("Nombre Responsable") or "").strip()
+
 def normalizar_cliente(row: dict) -> dict:
     tipo = (row.get("Tipo de cliente") or "").strip()
     if tipo not in TIPOS_CLIENTE_VALIDOS:
         tipo = "Minorista"
     return {
         "ID Cliente": row.get("ID Cliente", ""),
-        "Nombre": row.get("Nombre Local") or row.get("Nombre Responsable") or "",
+        "Nombre": nombre_mostrar(row, tipo),
         "Telefono": row.get("Telefono", ""),
         "Tipo de cliente": tipo,
     }
@@ -209,7 +218,7 @@ async def cmd_clientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         clientes = cargar_clientes()
         texto = "👥 *Clientes*\n\n"
         for c in clientes:
-            nombre = c.get("Nombre Local") or c.get("Nombre Responsable") or ""
+            nombre = nombre_mostrar(c)
             tel       = c.get("Telefono", "")
             localidad = c.get("Localidad", "")
             tipo      = c.get("Tipo de cliente", "")
@@ -258,7 +267,7 @@ async def cmd_nuevo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _mostrar_lista_clientes(origen, context: ContextTypes.DEFAULT_TYPE, clientes_filtrados: list):
     teclado = []
     for c in clientes_filtrados:
-        nombre = (c.get("Nombre Local") or c.get("Nombre Responsable") or "").strip()
+        nombre = nombre_mostrar(c)
         if nombre:
             teclado.append([InlineKeyboardButton(nombre, callback_data=f"cli|{c['ID Cliente']}")])
     teclado.append([InlineKeyboardButton("✏️ Cliente nuevo", callback_data="cli|_manual_")])
