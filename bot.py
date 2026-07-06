@@ -33,9 +33,9 @@ TIPOS_CLIENTE_VALIDOS = ("Minorista", "Mayorista")
 
 # Estados del ConversationHandler
 (
-    ELEGIR_CLIENTE, ELEGIR_PRODUCTO, INGRESAR_CANTIDAD,
+    FILTRO_CLIENTE, BUSCAR_CLIENTE, ELEGIR_CLIENTE, ELEGIR_PRODUCTO, INGRESAR_CANTIDAD,
     NC_RESPONSABLE, NC_TIPO, NC_TELEFONO, NC_DIRECCION, NC_LOCALIDAD,
-) = range(8)
+) = range(10)
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -236,25 +236,71 @@ async def cmd_nuevo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = await update.message.reply_text("⏳ Cargando clientes…")
     try:
-        clientes = cargar_clientes()
-        context.user_data["clientes"] = clientes
+        context.user_data["clientes"] = cargar_clientes()
 
-        teclado = []
-        for c in clientes:
-            nombre = (c.get("Nombre Local") or c.get("Nombre Responsable") or "").strip()
-            if nombre:
-                teclado.append([InlineKeyboardButton(nombre, callback_data=f"cli|{c['ID Cliente']}")])
-        teclado.append([InlineKeyboardButton("✏️ Escribir nombre nuevo", callback_data="cli|_manual_")])
-
+        teclado = [
+            [InlineKeyboardButton("🏷 Minorista", callback_data="filtro|minorista")],
+            [InlineKeyboardButton("🏷 Mayorista", callback_data="filtro|mayorista")],
+            [InlineKeyboardButton("📋 Ver todos", callback_data="filtro|todos")],
+            [InlineKeyboardButton("🔍 Buscar por nombre", callback_data="filtro|buscar")],
+            [InlineKeyboardButton("✏️ Cliente nuevo", callback_data="cli|_manual_")],
+        ]
         await msg.edit_text(
             "👤 *¿Para quién es el pedido?*",
             reply_markup=InlineKeyboardMarkup(teclado),
             parse_mode="Markdown",
         )
-        return ELEGIR_CLIENTE
+        return FILTRO_CLIENTE
     except Exception as e:
         await msg.edit_text(f"❌ Error al cargar clientes: {e}")
         return ConversationHandler.END
+
+async def _mostrar_lista_clientes(origen, context: ContextTypes.DEFAULT_TYPE, clientes_filtrados: list):
+    teclado = []
+    for c in clientes_filtrados:
+        nombre = (c.get("Nombre Local") or c.get("Nombre Responsable") or "").strip()
+        if nombre:
+            teclado.append([InlineKeyboardButton(nombre, callback_data=f"cli|{c['ID Cliente']}")])
+    teclado.append([InlineKeyboardButton("✏️ Cliente nuevo", callback_data="cli|_manual_")])
+
+    texto = (
+        "👤 *¿Para quién es el pedido?*" if teclado[:-1]
+        else "👤 No encontré clientes con ese filtro.\n¿Cargamos uno nuevo?"
+    )
+    markup = InlineKeyboardMarkup(teclado)
+
+    if hasattr(origen, "edit_message_text"):
+        await origen.edit_message_text(texto, reply_markup=markup, parse_mode="Markdown")
+    else:
+        await origen.message.reply_text(texto, reply_markup=markup, parse_mode="Markdown")
+    return ELEGIR_CLIENTE
+
+async def cb_filtro_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    _, valor = query.data.split("|", 1)
+
+    if valor == "buscar":
+        await query.edit_message_text("🔍 Escribí las primeras letras del nombre del cliente:")
+        return BUSCAR_CLIENTE
+
+    clientes = context.user_data.get("clientes", [])
+    if valor == "todos":
+        filtrados = clientes
+    else:
+        tipo_deseado = "Minorista" if valor == "minorista" else "Mayorista"
+        filtrados = [c for c in clientes if (c.get("Tipo de cliente") or "").strip() == tipo_deseado]
+
+    return await _mostrar_lista_clientes(query, context, filtrados)
+
+async def msg_buscar_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto = update.message.text.strip().lower()
+    clientes = context.user_data.get("clientes", [])
+    filtrados = [
+        c for c in clientes
+        if texto in f"{c.get('Nombre Local', '')} {c.get('Nombre Responsable', '')}".lower()
+    ]
+    return await _mostrar_lista_clientes(update, context, filtrados)
 
 async def cb_elegir_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -585,6 +631,13 @@ def main():
     conv = ConversationHandler(
         entry_points=[CommandHandler("nuevo", cmd_nuevo)],
         states={
+            FILTRO_CLIENTE: [
+                CallbackQueryHandler(cb_filtro_cliente, pattern=r"^filtro\|"),
+                CallbackQueryHandler(cb_elegir_cliente, pattern=r"^cli\|"),
+            ],
+            BUSCAR_CLIENTE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, msg_buscar_cliente),
+            ],
             ELEGIR_CLIENTE: [
                 CallbackQueryHandler(cb_elegir_cliente, pattern=r"^cli\|"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, msg_nombre_manual),
