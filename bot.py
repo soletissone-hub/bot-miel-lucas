@@ -253,8 +253,6 @@ async def cmd_nuevo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["clientes"] = cargar_clientes()
 
         teclado = [
-            [InlineKeyboardButton("🏷 Minorista", callback_data="filtro|minorista")],
-            [InlineKeyboardButton("🏷 Mayorista", callback_data="filtro|mayorista")],
             [InlineKeyboardButton("📋 Ver todos", callback_data="filtro|todos")],
             [InlineKeyboardButton("🔍 Buscar por nombre", callback_data="filtro|buscar")],
             [InlineKeyboardButton("✏️ Cliente nuevo", callback_data="cli|_manual_")],
@@ -299,13 +297,7 @@ async def cb_filtro_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return BUSCAR_CLIENTE
 
     clientes = context.user_data.get("clientes", [])
-    if valor == "todos":
-        filtrados = clientes
-    else:
-        tipo_deseado = "Minorista" if valor == "minorista" else "Mayorista"
-        filtrados = [c for c in clientes if (c.get("Tipo de cliente") or "").strip() == tipo_deseado]
-
-    return await _mostrar_lista_clientes(query, context, filtrados)
+    return await _mostrar_lista_clientes(query, context, clientes)
 
 async def msg_buscar_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = update.message.text.strip().lower()
