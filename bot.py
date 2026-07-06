@@ -34,8 +34,8 @@ TIPOS_CLIENTE_VALIDOS = ("Minorista", "Mayorista")
 # Estados del ConversationHandler
 (
     FILTRO_CLIENTE, BUSCAR_CLIENTE, ELEGIR_CLIENTE, ELEGIR_PRODUCTO, INGRESAR_CANTIDAD,
-    NC_RESPONSABLE, NC_TIPO, NC_TELEFONO, NC_DIRECCION, NC_LOCALIDAD,
-) = range(10)
+    CONFIRMAR_PRECIO, NC_RESPONSABLE, NC_TIPO, NC_TELEFONO, NC_DIRECCION, NC_LOCALIDAD,
+) = range(11)
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -496,13 +496,10 @@ async def msg_ingresar_cantidad(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("⚠️ Ingresá un número entero mayor a 0:")
         return INGRESAR_CANTIDAD
 
-    cantidad     = int(texto)
-    producto     = context.user_data["producto_seleccionado"]
-    precio       = context.user_data["precio_seleccionado"]
-    margen       = context.user_data["margen_seleccionado"]
-    tipo_cliente = context.user_data["cliente"]["Tipo de cliente"]
-    stock        = context.user_data["stock"]
-    disp         = int(stock.get(producto, {}).get("Disponible") or 0)
+    cantidad = int(texto)
+    producto = context.user_data["producto_seleccionado"]
+    stock    = context.user_data["stock"]
+    disp     = int(stock.get(producto, {}).get("Disponible") or 0)
 
     if cantidad > disp:
         await update.message.reply_text(
@@ -511,8 +508,37 @@ async def msg_ingresar_cantidad(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return INGRESAR_CANTIDAD
 
+    context.user_data["cantidad_pendiente"] = cantidad
+    precio = context.user_data["precio_seleccionado"]
+
+    teclado = [
+        [InlineKeyboardButton(f"💰 Precio normal ({fmt_precio(precio)})", callback_data="preciolinea|normal")],
+        [InlineKeyboardButton("🎁 Muestra gratis ($0)", callback_data="preciolinea|gratis")],
+    ]
+    await update.message.reply_text(
+        f"¿*{cantidad}x {producto}* a precio normal o es muestra gratis?",
+        reply_markup=InlineKeyboardMarkup(teclado),
+        parse_mode="Markdown",
+    )
+    return CONFIRMAR_PRECIO
+
+async def cb_confirmar_precio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    _, valor = query.data.split("|", 1)
+
+    cantidad     = context.user_data["cantidad_pendiente"]
+    producto     = context.user_data["producto_seleccionado"]
+    tipo_cliente = context.user_data["cliente"]["Tipo de cliente"]
+
+    if valor == "gratis":
+        precio, margen = 0, 0
+    else:
+        precio = context.user_data["precio_seleccionado"]
+        margen = context.user_data["margen_seleccionado"]
+
     items = context.user_data["items"]
-    existente = next((i for i in items if i["producto"] == producto), None)
+    existente = next((i for i in items if i["producto"] == producto and i["precio"] == precio), None)
     if existente:
         existente["cantidad"] += cantidad
     else:
@@ -522,8 +548,9 @@ async def msg_ingresar_cantidad(update: Update, context: ContextTypes.DEFAULT_TY
             "tipo_venta": tipo_cliente,
         })
 
-    await update.message.reply_text(f"✅ Agregado: *{cantidad}x {producto}*", parse_mode="Markdown")
-    return await _mostrar_menu_productos(update, context)
+    etiqueta = "🎁 muestra gratis" if valor == "gratis" else fmt_precio(precio)
+    await query.edit_message_text(f"✅ Agregado: *{cantidad}x {producto}* ({etiqueta})", parse_mode="Markdown")
+    return await _mostrar_menu_productos(query, context)
 
 # ─────────────────────────────────────────────
 #  PASO 3: Confirmar y guardar en Google Sheets
@@ -675,6 +702,9 @@ def main():
             ],
             INGRESAR_CANTIDAD: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, msg_ingresar_cantidad),
+            ],
+            CONFIRMAR_PRECIO: [
+                CallbackQueryHandler(cb_confirmar_precio, pattern=r"^preciolinea\|"),
             ],
         },
         fallbacks=[CommandHandler("cancelar", cmd_cancelar)],
