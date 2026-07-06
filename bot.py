@@ -32,7 +32,10 @@ SHEET_VENTAS     = "VENTAS"
 TIPOS_CLIENTE_VALIDOS = ("Minorista", "Mayorista")
 
 # Estados del ConversationHandler
-ELEGIR_CLIENTE, ELEGIR_PRODUCTO, INGRESAR_CANTIDAD = range(3)
+(
+    ELEGIR_CLIENTE, ELEGIR_PRODUCTO, INGRESAR_CANTIDAD,
+    NC_RESPONSABLE, NC_TIPO, NC_TELEFONO, NC_DIRECCION, NC_LOCALIDAD,
+) = range(8)
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -74,6 +77,20 @@ def cargar_precios():
 def guardar_fila_venta(fila: list):
     ws = _spreadsheet().worksheet(SHEET_VENTAS)
     ws.append_row(fila, value_input_option="USER_ENTERED")
+
+def guardar_cliente_nuevo(nombre_local, nombre_responsable, tipo_cliente, telefono, direccion, localidad):
+    # "ID Cliente" (col A) y "Whatsapp" (col F) se calculan solos con un
+    # ARRAYFORMULA que ya cubre toda la columna — no hay que escribirles nada,
+    # y escribirles un valor literal rompería esa fórmula. "Ubicacion" (col I)
+    # ya tiene la fórmula copiada varias filas hacia abajo de antemano.
+    ws   = _spreadsheet().worksheet(SHEET_CLIENTES)
+    fila = len(ws.col_values(2)) + 1  # próxima fila libre según "Nombre Local"
+    ws.update(range_name=f"B{fila}:E{fila}",
+              values=[[nombre_local, nombre_responsable, tipo_cliente, telefono]],
+              value_input_option="USER_ENTERED")
+    ws.update(range_name=f"G{fila}:H{fila}",
+              values=[[direccion, localidad]],
+              value_input_option="USER_ENTERED")
 
 # ─────────────────────────────────────────────
 #  UTILIDADES
@@ -260,7 +277,72 @@ async def cb_elegir_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def msg_nombre_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nombre = update.message.text.strip()
-    context.user_data["cliente"] = normalizar_cliente({"Nombre Local": nombre})
+    if not nombre:
+        await update.message.reply_text("⚠️ Escribí un nombre válido:")
+        return ELEGIR_CLIENTE
+
+    context.user_data["nuevo_cliente"] = {"Nombre Local": nombre}
+    await update.message.reply_text("🙋 ¿Nombre del responsable / contacto?")
+    return NC_RESPONSABLE
+
+async def msg_nc_responsable(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    responsable = update.message.text.strip()
+    context.user_data["nuevo_cliente"]["Nombre Responsable"] = responsable
+
+    teclado = [
+        [InlineKeyboardButton("Minorista", callback_data="nctipo|Minorista")],
+        [InlineKeyboardButton("Mayorista", callback_data="nctipo|Mayorista")],
+    ]
+    await update.message.reply_text(
+        "🏷 ¿Tipo de cliente?",
+        reply_markup=InlineKeyboardMarkup(teclado),
+    )
+    return NC_TIPO
+
+async def cb_nc_tipo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    _, tipo = query.data.split("|", 1)
+    context.user_data["nuevo_cliente"]["Tipo de cliente"] = tipo
+    await query.edit_message_text(f"🏷 Tipo de cliente: *{tipo}*", parse_mode="Markdown")
+    await query.message.reply_text("📱 ¿Teléfono? (solo números, sin 0 ni 15)")
+    return NC_TELEFONO
+
+async def msg_nc_telefono(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["nuevo_cliente"]["Telefono"] = update.message.text.strip()
+    await update.message.reply_text("📍 ¿Dirección?")
+    return NC_DIRECCION
+
+async def msg_nc_direccion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["nuevo_cliente"]["Direccion"] = update.message.text.strip()
+    await update.message.reply_text("🌆 ¿Localidad?")
+    return NC_LOCALIDAD
+
+async def msg_nc_localidad(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    nc = context.user_data["nuevo_cliente"]
+    nc["Localidad"] = update.message.text.strip()
+
+    msg = await update.message.reply_text("⏳ Guardando cliente nuevo…")
+    try:
+        guardar_cliente_nuevo(
+            nombre_local=nc["Nombre Local"],
+            nombre_responsable=nc.get("Nombre Responsable", ""),
+            tipo_cliente=nc.get("Tipo de cliente", "Minorista"),
+            telefono=nc.get("Telefono", ""),
+            direccion=nc.get("Direccion", ""),
+            localidad=nc["Localidad"],
+        )
+    except Exception as e:
+        await msg.edit_text(f"❌ Error al guardar el cliente: {e}")
+        return ConversationHandler.END
+
+    context.user_data["cliente"] = normalizar_cliente({
+        "Nombre Local": nc["Nombre Local"],
+        "Nombre Responsable": nc.get("Nombre Responsable", ""),
+        "Tipo de cliente": nc.get("Tipo de cliente", "Minorista"),
+        "Telefono": nc.get("Telefono", ""),
+    })
+    await msg.edit_text(f"✅ Cliente *{nc['Nombre Local']}* guardado.", parse_mode="Markdown")
     return await _mostrar_menu_productos(update, context)
 
 # ─────────────────────────────────────────────
@@ -506,6 +588,21 @@ def main():
             ELEGIR_CLIENTE: [
                 CallbackQueryHandler(cb_elegir_cliente, pattern=r"^cli\|"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, msg_nombre_manual),
+            ],
+            NC_RESPONSABLE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, msg_nc_responsable),
+            ],
+            NC_TIPO: [
+                CallbackQueryHandler(cb_nc_tipo, pattern=r"^nctipo\|"),
+            ],
+            NC_TELEFONO: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, msg_nc_telefono),
+            ],
+            NC_DIRECCION: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, msg_nc_direccion),
+            ],
+            NC_LOCALIDAD: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, msg_nc_localidad),
             ],
             ELEGIR_PRODUCTO: [
                 CallbackQueryHandler(cb_elegir_producto, pattern=r"^prod\|"),
