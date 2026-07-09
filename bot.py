@@ -20,7 +20,7 @@ from telegram.ext import (
 # ─────────────────────────────────────────────
 TELEGRAM_TOKEN          = os.environ.get("TELEGRAM_TOKEN", "")
 SPREADSHEET_ID          = os.environ.get("SPREADSHEET_ID", "19psQEs7UHpEa1SJFfeyy1UnxkVtE1Ay6yj0pd9Ug7Lk")
-BRAND_NAME              = os.environ.get("BRAND_NAME", "Miel Lucas")
+BRAND_NAME              = os.environ.get("BRAND_NAME", "Una Abeja en mi Sombrero")
 CREDENTIALS_FILE        = os.environ.get("CREDENTIALS_FILE", "credentials.json")
 GOOGLE_CREDENTIALS_JSON = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
 
