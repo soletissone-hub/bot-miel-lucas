@@ -35,8 +35,8 @@ ESTADOS_PEDIDO = ("Reservado", "Entregado sin pago", "Pagado", "Cancelado", "Ent
 # Estados del ConversationHandler de /nuevo
 (
     FILTRO_CLIENTE, BUSCAR_CLIENTE, ELEGIR_CLIENTE, ELEGIR_PRODUCTO, INGRESAR_CANTIDAD,
-    CONFIRMAR_PRECIO, NC_RESPONSABLE, NC_TIPO, NC_TELEFONO, NC_DIRECCION, NC_LOCALIDAD,
-) = range(11)
+    CONFIRMAR_PRECIO, NC_RESPONSABLE, NC_TIPO, NC_TELEFONO, NC_DIRECCION, NC_PISO, NC_LOCALIDAD,
+) = range(12)
 
 # Estados del ConversationHandler de /estado
 EST_ELEGIR_PEDIDO, EST_ELEGIR_ESTADO = range(2)
@@ -108,18 +108,18 @@ def actualizar_estado_pedido(nro_pedido: str, nuevo_estado: str) -> int:
         ws.update_cell(fila, col_estado, nuevo_estado)
     return len(filas)
 
-def guardar_cliente_nuevo(nombre_local, nombre_responsable, tipo_cliente, telefono, direccion, localidad):
+def guardar_cliente_nuevo(nombre_local, nombre_responsable, tipo_cliente, telefono, direccion, piso_depto, localidad):
     # "ID Cliente" (col A) y "Whatsapp" (col F) se calculan solos con un
     # ARRAYFORMULA que ya cubre toda la columna — no hay que escribirles nada,
-    # y escribirles un valor literal rompería esa fórmula. "Ubicacion" (col I)
+    # y escribirles un valor literal rompería esa fórmula. "Ubicacion" (col J)
     # ya tiene la fórmula copiada varias filas hacia abajo de antemano.
     ws   = _spreadsheet().worksheet(SHEET_CLIENTES)
     fila = len(ws.col_values(2)) + 1  # próxima fila libre según "Nombre Local"
     ws.update(range_name=f"B{fila}:E{fila}",
               values=[[nombre_local, nombre_responsable, tipo_cliente, telefono]],
               value_input_option="USER_ENTERED")
-    ws.update(range_name=f"G{fila}:H{fila}",
-              values=[[direccion, localidad]],
+    ws.update(range_name=f"G{fila}:I{fila}",
+              values=[[direccion, piso_depto, localidad]],
               value_input_option="USER_ENTERED")
 
 # ─────────────────────────────────────────────
@@ -457,6 +457,11 @@ async def msg_nc_telefono(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def msg_nc_direccion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["nuevo_cliente"]["Direccion"] = update.message.text.strip()
+    await update.message.reply_text("🚪 ¿Piso/Depto? (dejá un espacio o guión si no aplica)")
+    return NC_PISO
+
+async def msg_nc_piso(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["nuevo_cliente"]["Piso/Depto"] = update.message.text.strip()
     await update.message.reply_text("🌆 ¿Localidad?")
     return NC_LOCALIDAD
 
@@ -472,6 +477,7 @@ async def msg_nc_localidad(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tipo_cliente=nc.get("Tipo de cliente", "Minorista"),
             telefono=nc.get("Telefono", ""),
             direccion=nc.get("Direccion", ""),
+            piso_depto=nc.get("Piso/Depto", ""),
             localidad=nc["Localidad"],
         )
     except Exception as e:
@@ -782,6 +788,9 @@ def main():
             ],
             NC_DIRECCION: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, msg_nc_direccion),
+            ],
+            NC_PISO: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, msg_nc_piso),
             ],
             NC_LOCALIDAD: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, msg_nc_localidad),
