@@ -28,6 +28,7 @@ SHEET_CLIENTES   = "CLIENTES"
 SHEET_STOCK      = "STOCK"
 SHEET_PRECIOS    = "CATALOGO"
 SHEET_VENTAS     = "VENTAS"
+SHEET_COSTOS     = "COSTOS"
 
 TIPOS_CLIENTE_VALIDOS = ("Minorista", "Mayorista")
 ESTADOS_PEDIDO = ("Reservado", "Entregado sin pago", "Pagado", "Cancelado", "Entregado", "COMODATO")
@@ -192,6 +193,17 @@ def precio_y_margen(catalogo_row: dict, tipo_cliente: str):
         precio = limpiar_precio(catalogo_row.get("Precio publico", 0))
         margen = limpiar_precio(catalogo_row.get("Margen unitario Minorista", 0))
     return precio, margen
+
+def costo_variable_unitario(producto: str, tipo_cliente: str) -> float:
+    # Fila 20 de COSTOS = "Total variable unitario + merma": E/F para
+    # Mayorista (kg / 1/2 kg), J/K para Minorista (kg / 1/2 kg).
+    fila20 = _spreadsheet().worksheet(SHEET_COSTOS).row_values(20)
+    es_medio = "1/2" in producto
+    if tipo_cliente == "Mayorista":
+        valor = fila20[5] if es_medio else fila20[4]
+    else:
+        valor = fila20[10] if es_medio else fila20[9]
+    return limpiar_precio(valor)
 
 # ─────────────────────────────────────────────
 #  COMANDOS DEL BOT
@@ -684,7 +696,8 @@ async def cb_confirmar_precio(update: Update, context: ContextTypes.DEFAULT_TYPE
     tipo_cliente = context.user_data["cliente"]["Tipo de cliente"]
 
     if valor == "gratis":
-        precio, margen = 0, 0
+        precio = 0
+        margen = -costo_variable_unitario(producto, tipo_cliente)
     else:
         precio = context.user_data["precio_seleccionado"]
         margen = context.user_data["margen_seleccionado"]
