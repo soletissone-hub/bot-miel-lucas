@@ -31,7 +31,7 @@ SHEET_VENTAS     = "VENTAS"
 SHEET_COSTOS     = "COSTOS"
 
 TIPOS_CLIENTE_VALIDOS = ("Minorista", "Mayorista")
-ESTADOS_PEDIDO = ("Reservado", "Entregado sin pago", "Pagado", "Cancelado", "Entregado", "COMODATO")
+ESTADOS_PEDIDO = ("Reservado", "Entregado sin pago", "Pagado", "Cancelado", "Entregado", "CONSIGNACION")
 
 # Estados del ConversationHandler de /nuevo
 (
@@ -94,7 +94,7 @@ def pedidos_abiertos():
     pedidos = {}
     for r in records:
         estado = r.get("Estado")
-        if estado not in ("Reservado", "Entregado sin pago", "COMODATO"):
+        if estado not in ("Reservado", "Entregado sin pago", "CONSIGNACION"):
             continue
         np = r.get("Nro Pedido")
         if not np:
