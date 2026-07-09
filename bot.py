@@ -80,8 +80,13 @@ def cargar_precios():
     return precios
 
 def guardar_fila_venta(fila: list):
-    ws = _spreadsheet().worksheet(SHEET_VENTAS)
-    ws.append_row(fila, value_input_option="USER_ENTERED")
+    # No usar append_row(): con un filtro activo en la hoja (como el que tiene
+    # VENTAS), la deteccion automatica de "fin de la tabla" falla y la fila
+    # queda insertada justo debajo del encabezado en vez de al final. Se
+    # calcula la proxima fila libre a mano y se escribe ahi directamente.
+    ws   = _spreadsheet().worksheet(SHEET_VENTAS)
+    fila_destino = len(ws.col_values(1)) + 1  # proxima fila libre segun "Fecha"
+    ws.update(range_name=f"A{fila_destino}", values=[fila], value_input_option="USER_ENTERED")
 
 def pedidos_abiertos():
     records = _spreadsheet().worksheet(SHEET_VENTAS).get_all_records()
