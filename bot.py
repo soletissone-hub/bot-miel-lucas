@@ -35,8 +35,9 @@ ESTADOS_PEDIDO = ("Reservado", "Entregado sin pago", "Pagado", "Cancelado", "Ent
 # Estados del ConversationHandler de /nuevo
 (
     FILTRO_CLIENTE, BUSCAR_CLIENTE, ELEGIR_CLIENTE, ELEGIR_PRODUCTO, INGRESAR_CANTIDAD,
-    CONFIRMAR_PRECIO, NC_RESPONSABLE, NC_TIPO, NC_TELEFONO, NC_DIRECCION, NC_PISO, NC_LOCALIDAD,
-) = range(12)
+    CONFIRMAR_PRECIO, NC_TIPO, NC_NOMBRE_MINORISTA, NC_NOMBRE_LOCAL, NC_RESPONSABLE,
+    NC_TELEFONO, NC_DIRECCION, NC_PISO, NC_LOCALIDAD,
+) = range(14)
 
 # Estados del ConversationHandler de /estado
 EST_ELEGIR_PEDIDO, EST_ELEGIR_ESTADO = range(2)
@@ -405,8 +406,16 @@ async def cb_elegir_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _, valor = query.data.split("|", 1)
 
     if valor == "_manual_":
-        await query.edit_message_text("✏️ Escribí el nombre del cliente:")
-        return ELEGIR_CLIENTE
+        context.user_data["nuevo_cliente"] = {}
+        teclado = [
+            [InlineKeyboardButton("Minorista", callback_data="nctipo|Minorista")],
+            [InlineKeyboardButton("Mayorista", callback_data="nctipo|Mayorista")],
+        ]
+        await query.edit_message_text(
+            "🏷 ¿Tipo de cliente?",
+            reply_markup=InlineKeyboardMarkup(teclado),
+        )
+        return NC_TIPO
 
     clientes = context.user_data.get("clientes", [])
     cliente  = next((c for c in clientes if str(c["ID Cliente"]) == valor), None)
@@ -418,19 +427,16 @@ async def cb_elegir_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await _mostrar_menu_productos(query, context)
 
 async def msg_nombre_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Fallback: si en vez de tocar un boton el usuario escribe un nombre
+    # directamente en la pantalla de elegir cliente, se guarda como nombre
+    # provisorio y se pregunta el tipo antes de decidir donde va (Local,
+    # Responsable, o los dos si es minorista).
     nombre = update.message.text.strip()
     if not nombre:
         await update.message.reply_text("⚠️ Escribí un nombre válido:")
         return ELEGIR_CLIENTE
 
-    context.user_data["nuevo_cliente"] = {"Nombre Local": nombre}
-    await update.message.reply_text("🙋 ¿Nombre del responsable / contacto?")
-    return NC_RESPONSABLE
-
-async def msg_nc_responsable(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    responsable = update.message.text.strip()
-    context.user_data["nuevo_cliente"]["Nombre Responsable"] = responsable
-
+    context.user_data["nuevo_cliente"] = {"_nombre_provisorio": nombre}
     teclado = [
         [InlineKeyboardButton("Minorista", callback_data="nctipo|Minorista")],
         [InlineKeyboardButton("Mayorista", callback_data="nctipo|Mayorista")],
@@ -445,9 +451,54 @@ async def cb_nc_tipo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     _, tipo = query.data.split("|", 1)
-    context.user_data["nuevo_cliente"]["Tipo de cliente"] = tipo
+
+    nc = context.user_data["nuevo_cliente"]
+    nc["Tipo de cliente"] = tipo
+    provisorio = nc.pop("_nombre_provisorio", None)
+
     await query.edit_message_text(f"🏷 Tipo de cliente: *{tipo}*", parse_mode="Markdown")
-    await query.message.reply_text("📱 ¿Teléfono? (solo números, sin 0 ni 15)")
+
+    if provisorio:
+        nc["Nombre Local"] = provisorio
+        if tipo == "Minorista":
+            nc["Nombre Responsable"] = provisorio
+            await query.message.reply_text("📱 ¿Teléfono? (solo números, sin 0 ni 15)")
+            return NC_TELEFONO
+        await query.message.reply_text("🙋 ¿Nombre del responsable / contacto?")
+        return NC_RESPONSABLE
+
+    if tipo == "Minorista":
+        await query.message.reply_text("🙋 ¿Nombre del cliente?")
+        return NC_NOMBRE_MINORISTA
+
+    await query.message.reply_text("🏪 ¿Nombre del negocio (Nombre Local)?")
+    return NC_NOMBRE_LOCAL
+
+async def msg_nc_nombre_minorista(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    nombre = update.message.text.strip()
+    if not nombre:
+        await update.message.reply_text("⚠️ Escribí un nombre válido:")
+        return NC_NOMBRE_MINORISTA
+
+    nc = context.user_data["nuevo_cliente"]
+    nc["Nombre Local"] = nombre
+    nc["Nombre Responsable"] = nombre
+    await update.message.reply_text("📱 ¿Teléfono? (solo números, sin 0 ni 15)")
+    return NC_TELEFONO
+
+async def msg_nc_nombre_local(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    nombre = update.message.text.strip()
+    if not nombre:
+        await update.message.reply_text("⚠️ Escribí un nombre válido:")
+        return NC_NOMBRE_LOCAL
+
+    context.user_data["nuevo_cliente"]["Nombre Local"] = nombre
+    await update.message.reply_text("🙋 ¿Nombre del responsable / contacto?")
+    return NC_RESPONSABLE
+
+async def msg_nc_responsable(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["nuevo_cliente"]["Nombre Responsable"] = update.message.text.strip()
+    await update.message.reply_text("📱 ¿Teléfono? (solo números, sin 0 ni 15)")
     return NC_TELEFONO
 
 async def msg_nc_telefono(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -777,11 +828,17 @@ def main():
                 CallbackQueryHandler(cb_elegir_cliente, pattern=r"^cli\|"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, msg_nombre_manual),
             ],
-            NC_RESPONSABLE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, msg_nc_responsable),
-            ],
             NC_TIPO: [
                 CallbackQueryHandler(cb_nc_tipo, pattern=r"^nctipo\|"),
+            ],
+            NC_NOMBRE_MINORISTA: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, msg_nc_nombre_minorista),
+            ],
+            NC_NOMBRE_LOCAL: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, msg_nc_nombre_local),
+            ],
+            NC_RESPONSABLE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, msg_nc_responsable),
             ],
             NC_TELEFONO: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, msg_nc_telefono),
