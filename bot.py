@@ -825,11 +825,7 @@ async def cmd_cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 import asyncio
 
-def main():
-    if not TELEGRAM_TOKEN:
-        raise SystemExit("Falta la variable de entorno TELEGRAM_TOKEN.")
-
-    asyncio.set_event_loop(asyncio.new_event_loop())
+def build_app():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
     conv = ConversationHandler(
@@ -903,6 +899,69 @@ def main():
     app.add_handler(CommandHandler("clientes",   cmd_clientes))
     app.add_handler(conv)
     app.add_handler(conv_estado)
+
+    return app
+
+# ─────────────────────────────────────────────
+#  MODO WEBHOOK (PythonAnywhere)
+#  Si WEBHOOK_URL está definida, el bot corre como una app Flask que recibe
+#  los updates de Telegram por POST, en vez de hacer polling continuo. Esto
+#  es lo que necesita PythonAnywhere (no permite procesos de fondo propios
+#  en el plan gratis, solo apps web).
+# ─────────────────────────────────────────────
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
+
+if WEBHOOK_URL:
+    # PythonAnywhere (plan gratis) exige salir a internet a través de su proxy.
+    os.environ.setdefault("HTTPS_PROXY", "http://proxy.server:3128")
+    os.environ.setdefault("HTTP_PROXY", "http://proxy.server:3128")
+
+    from flask import Flask, request as flask_request
+
+    if not TELEGRAM_TOKEN:
+        raise SystemExit("Falta la variable de entorno TELEGRAM_TOKEN.")
+
+    _loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(_loop)
+    _ptb_app = build_app()
+    _ready = [False]
+    try:
+        _loop.run_until_complete(_ptb_app.initialize())
+        _ready[0] = True
+    except Exception:
+        pass  # se reintenta en el primer request si falla al arrancar
+
+    flask_app = Flask(__name__)
+
+    @flask_app.route("/" + TELEGRAM_TOKEN, methods=["POST"])
+    def webhook():
+        if not _ready[0]:
+            try:
+                _loop.run_until_complete(_ptb_app.initialize())
+                _ready[0] = True
+            except Exception:
+                pass
+        data = flask_request.get_json(force=True)
+        update = Update.de_json(data, _ptb_app.bot)
+        _loop.run_until_complete(_ptb_app.process_update(update))
+        return "ok", 200
+
+    @flask_app.route("/")
+    def health():
+        return "Bot activo", 200
+
+    application = flask_app  # WSGI entry point para PythonAnywhere
+
+# ─────────────────────────────────────────────
+#  MODO POLLING (Railway / local)
+# ─────────────────────────────────────────────
+
+def main():
+    if not TELEGRAM_TOKEN:
+        raise SystemExit("Falta la variable de entorno TELEGRAM_TOKEN.")
+
+    asyncio.set_event_loop(asyncio.new_event_loop())
+    app = build_app()
 
     print("Bot iniciado. Ctrl+C para detener.")
     app.run_polling()
