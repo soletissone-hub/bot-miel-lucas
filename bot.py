@@ -74,7 +74,7 @@ def cargar_precios():
         # La planilla trae filas duplicadas por producto (plantillas para
         # futuros cambios de precio) sin precio cargado todavía — se ignoran
         # para no pisar la fila con el precio vigente.
-        tiene_precio = str(r.get("Precio publico", "")).strip() or str(r.get("precio mayorista", "")).strip()
+        tiene_precio = str(r.get("Precio Minorista", "")).strip() or str(r.get("Precio Mayorista", "")).strip()
         if not tiene_precio:
             continue
         precios[producto] = r
@@ -187,10 +187,10 @@ def normalizar_cliente(row: dict) -> dict:
 
 def precio_y_margen(catalogo_row: dict, tipo_cliente: str):
     if tipo_cliente == "Mayorista":
-        precio = limpiar_precio(catalogo_row.get("precio mayorista", 0))
+        precio = limpiar_precio(catalogo_row.get("Precio Mayorista", 0))
         margen = limpiar_precio(catalogo_row.get("Margen unitario Mayorista", 0))
     else:
-        precio = limpiar_precio(catalogo_row.get("Precio publico", 0))
+        precio = limpiar_precio(catalogo_row.get("Precio Minorista", 0))
         margen = limpiar_precio(catalogo_row.get("Margen unitario Minorista", 0))
     return precio, margen
 
