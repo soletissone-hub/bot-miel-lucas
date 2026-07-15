@@ -284,7 +284,7 @@ function generarPDFComprobante() {
   p.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
   p.setBold(true);
   p.setFontSize(14);
-  p.editAsText().setForegroundColor(GRIS_TEXTO);
+  p.editAsText().setForegroundColor(GRIS_TEXTO).setItalic(false);
 
   body.appendParagraph("");
 
@@ -314,6 +314,7 @@ function generarPDFComprobante() {
     txt.setBold(true);
     txt.setFontSize(11);
     txt.setForegroundColor("#ffffff");
+    txt.setItalic(false);
   }
 
   for (let r = 1; r < table.getNumRows(); r++) {
@@ -321,7 +322,7 @@ function generarPDFComprobante() {
     for (let c = 0; c < 3; c++) {
       const cell = table.getRow(r).getCell(c);
       cell.setBackgroundColor(bg);
-      cell.editAsText().setFontSize(11).setForegroundColor(GRIS_TEXTO);
+      cell.editAsText().setFontSize(11).setForegroundColor(GRIS_TEXTO).setItalic(false);
     }
   }
 
@@ -331,7 +332,7 @@ function generarPDFComprobante() {
   p.setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
   p.setBold(true);
   p.setFontSize(16);
-  p.editAsText().setForegroundColor(VERDE_OSCURO);
+  p.editAsText().setForegroundColor(VERDE_OSCURO).setItalic(false);
 
   body.appendParagraph("");
   body.appendParagraph("");
@@ -339,12 +340,12 @@ function generarPDFComprobante() {
   p = body.appendParagraph("Gracias por elegir productos naturales 🐝🍯");
   p.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
   p.setFontSize(11);
-  p.editAsText().setForegroundColor(GRIS_TEXTO);
+  p.editAsText().setForegroundColor(GRIS_TEXTO).setItalic(false);
 
   p = body.appendParagraph("WhatsApp: 11 2267 2877  |  Instagram: @UnaAbejaEnMiSombrero");
   p.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
   p.setFontSize(10);
-  p.editAsText().setForegroundColor(DORADO).setBold(true);
+  p.editAsText().setForegroundColor(DORADO).setBold(true).setItalic(false);
 
   doc.saveAndClose();
 
@@ -361,6 +362,7 @@ function agregarLineaDato_(body, etiqueta, valor, color) {
   t.appendText(etiqueta + " ").setBold(true);
   t.appendText(String(valor || ""));
   p.setFontSize(11);
+  t.setItalic(false);
   if (color) {
     t.setForegroundColor(color);
   }
