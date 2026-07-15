@@ -938,8 +938,15 @@ def build_app():
     app.add_handler(CommandHandler("clientes",   cmd_clientes))
     app.add_handler(conv)
     app.add_handler(conv_estado)
+    app.add_error_handler(_log_error_handler)
 
     return app
+
+async def _log_error_handler(update, context):
+    # Sin esto, si falla el ENVIO de una respuesta (ej: timeout del proxy de
+    # PythonAnywhere), python-telegram-bot se lo traga en silencio y el
+    # usuario no ve nada ni queda registrado en ningun lado.
+    logging.error("Error no manejado procesando update: %s", context.error, exc_info=context.error)
 
 # ─────────────────────────────────────────────
 #  MODO WEBHOOK (PythonAnywhere)
