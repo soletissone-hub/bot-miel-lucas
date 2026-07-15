@@ -277,7 +277,7 @@ function generarPDFComprobante() {
 
   p = body.appendParagraph("Pura. Natural. Artesanal.");
   p.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
-  p.editAsText().setItalic(true).setForegroundColor(DORADO);
+  p.editAsText().setForegroundColor(DORADO);
   p.setFontSize(11);
 
   p = body.appendParagraph("Comprobante de Pedido");
