@@ -832,7 +832,34 @@ async def cmd_bloqueado_por_conversacion(update: Update, context: ContextTypes.D
 import asyncio
 
 def build_app():
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    # PythonAnywhere (plan gratis) obliga a salir por un proxy compartido que
+    # a veces falla con timeouts o "503 Service Unavailable". Se agregan
+    # reintentos automaticos y timeouts mas largos para no perder la
+    # respuesta y dejar la conversacion trabada.
+    import httpx
+    from telegram.request import HTTPXRequest
+
+    def _nueva_request():
+        req = HTTPXRequest(
+            connect_timeout=20.0,
+            read_timeout=20.0,
+            write_timeout=20.0,
+            pool_timeout=20.0,
+        )
+        # HTTPXRequest no expone un parametro para reintentos automaticos en
+        # esta version de la libreria — se reemplaza el transporte interno
+        # por uno con reintentos y se reconstruye el cliente http.
+        req._client_kwargs["transport"] = httpx.AsyncHTTPTransport(retries=3)
+        req._client = req._build_client()
+        return req
+
+    app = (
+        Application.builder()
+        .token(TELEGRAM_TOKEN)
+        .request(_nueva_request())
+        .get_updates_request(_nueva_request())
+        .build()
+    )
 
     conv = ConversationHandler(
         entry_points=[CommandHandler("nuevo", cmd_nuevo)],
