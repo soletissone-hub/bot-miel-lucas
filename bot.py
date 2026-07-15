@@ -996,6 +996,12 @@ if WEBHOOK_URL:
         data = flask_request.get_json(force=True)
         update = Update.de_json(data, _ptb_app.bot)
         try:
+            chat_id = update.effective_chat.id if update.effective_chat else None
+            texto = update.effective_message.text if update.effective_message else None
+            logging.error("DEBUG update recibido: chat_id=%s texto=%r", chat_id, texto)
+        except Exception as e:
+            logging.error("DEBUG error leyendo update: %s", e)
+        try:
             _loop.run_until_complete(_ptb_app.process_update(update))
         except RuntimeError as e:
             if "not initialized" not in str(e):
