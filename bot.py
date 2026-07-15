@@ -964,25 +964,39 @@ if WEBHOOK_URL:
     asyncio.set_event_loop(_loop)
     _ptb_app = build_app()
     _ready = [False]
-    try:
-        _loop.run_until_complete(_ptb_app.initialize())
-        _ready[0] = True
-    except Exception:
-        pass  # se reintenta en el primer request si falla al arrancar
+
+    def _asegurar_inicializado():
+        # El proxy gratis de PythonAnywhere a veces falla (503/timeout) justo
+        # en el "initialize()" inicial. Si eso pasa, la app queda a medio
+        # inicializar — hay que reintentar initialize() (es seguro llamarlo
+        # de nuevo, PTB no vuelve a hacer nada si ya esta listo) en cada
+        # request hasta que funcione, en vez de quedar rota para siempre.
+        if _ready[0]:
+            return
+        try:
+            _loop.run_until_complete(_ptb_app.initialize())
+            _ready[0] = True
+        except Exception:
+            pass
+
+    _asegurar_inicializado()
 
     flask_app = Flask(__name__)
 
     @flask_app.route("/" + TELEGRAM_TOKEN, methods=["POST"])
     def webhook():
-        if not _ready[0]:
-            try:
-                _loop.run_until_complete(_ptb_app.initialize())
-                _ready[0] = True
-            except Exception:
-                pass
+        _asegurar_inicializado()
         data = flask_request.get_json(force=True)
         update = Update.de_json(data, _ptb_app.bot)
-        _loop.run_until_complete(_ptb_app.process_update(update))
+        try:
+            _loop.run_until_complete(_ptb_app.process_update(update))
+        except RuntimeError as e:
+            if "not initialized" not in str(e):
+                raise
+            _ready[0] = False
+            _asegurar_inicializado()
+            if _ready[0]:
+                _loop.run_until_complete(_ptb_app.process_update(update))
         return "ok", 200
 
     @flask_app.route("/")
