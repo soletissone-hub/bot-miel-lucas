@@ -819,6 +819,12 @@ async def cmd_cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ Operación cancelada.")
     return ConversationHandler.END
 
+async def cmd_bloqueado_por_conversacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "⚠️ Ya tenés una operación en curso (un pedido u otra acción sin terminar).\n"
+        "Escribí /cancelar para cancelarla, o seguí respondiendo la pregunta anterior."
+    )
+
 # ─────────────────────────────────────────────
 #  MAIN
 # ─────────────────────────────────────────────
@@ -877,7 +883,10 @@ def build_app():
                 CallbackQueryHandler(cb_confirmar_precio, pattern=r"^preciolinea\|"),
             ],
         },
-        fallbacks=[CommandHandler("cancelar", cmd_cancelar)],
+        fallbacks=[
+            CommandHandler("cancelar", cmd_cancelar),
+            MessageHandler(filters.COMMAND, cmd_bloqueado_por_conversacion),
+        ],
     )
 
     conv_estado = ConversationHandler(
@@ -890,7 +899,10 @@ def build_app():
                 CallbackQueryHandler(cb_elegir_nuevo_estado, pattern=r"^nuevoestado\|"),
             ],
         },
-        fallbacks=[CommandHandler("cancelar", cmd_cancelar)],
+        fallbacks=[
+            CommandHandler("cancelar", cmd_cancelar),
+            MessageHandler(filters.COMMAND, cmd_bloqueado_por_conversacion),
+        ],
     )
 
     app.add_handler(CommandHandler("start",      cmd_start))
