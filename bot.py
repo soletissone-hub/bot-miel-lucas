@@ -958,9 +958,11 @@ async def _log_error_handler(update, context):
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
 
 if WEBHOOK_URL:
-    # PythonAnywhere (plan gratis) exige salir a internet a través de su proxy.
-    os.environ.setdefault("HTTPS_PROXY", "http://proxy.server:3128")
-    os.environ.setdefault("HTTP_PROXY", "http://proxy.server:3128")
+    # El proxy solo existe en PythonAnywhere (plan gratis) - en otros hosts
+    # (Render, etc.) no hay que forzarlo, rompería toda conexion a internet.
+    if os.environ.get("PYTHONANYWHERE_PROXY"):
+        os.environ.setdefault("HTTPS_PROXY", "http://proxy.server:3128")
+        os.environ.setdefault("HTTP_PROXY", "http://proxy.server:3128")
 
     from flask import Flask, request as flask_request
 
