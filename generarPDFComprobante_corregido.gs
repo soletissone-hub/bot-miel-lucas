@@ -1,4 +1,4 @@
-function generarPDFComprobante() {
+function generarPDFComprobante(nroPedidoParam) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const shControl = ss.getSheetByName("PDF_PEDIDO");
   const shVentas = ss.getSheetByName("VENTAS");
@@ -198,13 +198,17 @@ function generarPDFComprobante() {
     "ylWuUrFly2bVatTnPGAWNpi/bAcuLjl/hRv1X9qirxTRuUQsr9g//94ZczMUC855uLEIAgQcFQWKVyRVipKIwDjFBMfHx8THJ1IaYowhRBjjpuENM3gIEUwaatOunSsy8sD+/WXKlQ1jnAhwWCPTNNV77qk+Z/7c3bv3JiUllS5dKjExPioqAiCsS6sbugcQQghzzovk" +
     "StEV6/GScQPEwg7VpQN4fZmR6wzyDUf+Wh9AhS7d/wfyfOCED9dyJgAAAABJRU5ErkJggg==";
 
+  const esWebApp = !!nroPedidoParam;
+
   if (!shControl || !shVentas || !shClientes) {
+    if (esWebApp) throw new Error("No encuentro una de estas hojas: PDF_PEDIDO, VENTAS o CLIENTES.");
     SpreadsheetApp.getUi().alert("No encuentro una de estas hojas: PDF_PEDIDO, VENTAS o CLIENTES.");
     return;
   }
 
-  const nroPedido = String(shControl.getRange("A2").getValue()).trim();
+  const nroPedido = esWebApp ? String(nroPedidoParam).trim() : String(shControl.getRange("A2").getValue()).trim();
   if (!nroPedido) {
+    if (esWebApp) throw new Error("Falta el N° de pedido.");
     SpreadsheetApp.getUi().alert("No hay N° de pedido en PDF_PEDIDO!A2.");
     return;
   }
@@ -215,6 +219,7 @@ function generarPDFComprobante() {
   const filasPedido = ventas.slice(1).filter(r => String(r[14]).trim() === nroPedido);
 
   if (filasPedido.length === 0) {
+    if (esWebApp) throw new Error("No encontré líneas para el pedido: " + nroPedido);
     SpreadsheetApp.getUi().alert("No encontré líneas para el pedido: " + nroPedido);
     return;
   }
@@ -224,11 +229,13 @@ function generarPDFComprobante() {
 
   let direccion = "";
   let localidad = "";
+  let telefono = "";
   for (let i = 1; i < clientes.length; i++) {
     const nombreResp = String(clientes[i][2]).trim();
     if (nombreResp === cliente) {
       direccion = String(clientes[i][6] || "").trim();
       localidad = String(clientes[i][8] || "").trim();
+      telefono = String(clientes[i][4] || "").trim();
       break;
     }
   }
@@ -266,7 +273,7 @@ function generarPDFComprobante() {
     const imgParent = img.getParent().asParagraph();
     imgParent.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
   } catch (e) {
-    SpreadsheetApp.getUi().alert("DEBUG logo: " + e.message);
+    if (!esWebApp) SpreadsheetApp.getUi().alert("DEBUG logo: " + e.message);
   }
 
   let p = body.appendParagraph("UNA ABEJA EN MI SOMBRERO");
@@ -353,7 +360,39 @@ function generarPDFComprobante() {
   const pdfBlob = docFile.getAs(MimeType.PDF).setName(nombreDoc + ".pdf");
   const pdfFile = carpeta.createFile(pdfBlob);
 
+  if (esWebApp) {
+    return {
+      filename: pdfFile.getName(),
+      base64: Utilities.base64Encode(pdfBlob.getBytes()),
+      cliente: cliente,
+      total: totalFinal,
+      telefono: telefono,
+    };
+  }
+
   SpreadsheetApp.getUi().alert("PDF generado: " + pdfFile.getName());
+}
+
+// ─────────────────────────────────────────────
+//  WEB APP: permite que el bot de Telegram pida un PDF por HTTP,
+//  sin tocar el flujo manual desde el menu de la planilla.
+// ─────────────────────────────────────────────
+const SECRETO_WEBAPP_PDF = "miel-abeja-pdf-2026-k7f3";
+
+function doPost(e) {
+  try {
+    const params = JSON.parse(e.postData.contents);
+    if (params.secreto !== SECRETO_WEBAPP_PDF) {
+      return ContentService.createTextOutput(JSON.stringify({ ok: false, error: "No autorizado" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    const resultado = generarPDFComprobante(String(params.nroPedido || "").trim());
+    return ContentService.createTextOutput(JSON.stringify(Object.assign({ ok: true }, resultado)))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: String(err) }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 }
 
 function agregarLineaDato_(body, etiqueta, valor, color) {

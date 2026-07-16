@@ -1,10 +1,13 @@
 import os
+import io
 import json
+import base64
 import logging
 from datetime import datetime
 from urllib.parse import quote
 
 import gspread
+import requests
 from google.oauth2.service_account import Credentials
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -23,6 +26,8 @@ SPREADSHEET_ID          = os.environ.get("SPREADSHEET_ID", "19psQEs7UHpEa1SJFfey
 BRAND_NAME              = os.environ.get("BRAND_NAME", "Una Abeja en mi Sombrero")
 CREDENTIALS_FILE        = os.environ.get("CREDENTIALS_FILE", "credentials.json")
 GOOGLE_CREDENTIALS_JSON = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+PDF_WEBAPP_URL          = os.environ.get("PDF_WEBAPP_URL", "")
+PDF_WEBAPP_SECRET       = os.environ.get("PDF_WEBAPP_SECRET", "")
 
 SHEET_CLIENTES   = "CLIENTES"
 SHEET_STOCK      = "STOCK"
@@ -42,6 +47,9 @@ ESTADOS_PEDIDO = ("Reservado", "Entregado sin pago", "Pagado", "Cancelado", "Ent
 
 # Estados del ConversationHandler de /estado
 EST_ELEGIR_PEDIDO, EST_ELEGIR_ESTADO = range(2)
+
+# Estados del ConversationHandler de /pdf
+(PDF_ELEGIR_PEDIDO,) = range(1)
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -101,6 +109,30 @@ def pedidos_abiertos():
             continue
         pedidos.setdefault(np, {"cliente": r.get("Cliente", ""), "estado": estado})
     return pedidos
+
+def pedidos_recientes(limite=20):
+    records = _spreadsheet().worksheet(SHEET_VENTAS).get_all_records()
+    vistos = {}
+    for r in records:
+        np = r.get("Nro Pedido")
+        if not np:
+            continue
+        vistos[np] = {"cliente": r.get("Cliente", ""), "estado": r.get("Estado", "")}
+    # Los pedidos mas nuevos quedan al final de VENTAS -> se muestran primero.
+    items = list(vistos.items())[::-1]
+    return dict(items[:limite])
+
+def generar_pdf_pedido(nro_pedido: str) -> dict:
+    resp = requests.post(
+        PDF_WEBAPP_URL,
+        json={"nroPedido": nro_pedido, "secreto": PDF_WEBAPP_SECRET},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    datos = resp.json()
+    if not datos.get("ok"):
+        raise RuntimeError(datos.get("error", "Error desconocido generando el PDF."))
+    return datos
 
 def actualizar_estado_pedido(nro_pedido: str, nuevo_estado: str) -> int:
     ws   = _spreadsheet().worksheet(SHEET_VENTAS)
@@ -216,6 +248,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📦 /stock      → Ver stock disponible\n"
         "⏳ /pendientes → Pedidos sin entregar\n"
         "🔄 /estado     → Cambiar el estado de un pedido\n"
+        "🧾 /pdf        → Generar y enviar el comprobante de un pedido\n"
         "👥 /clientes   → Lista de clientes\n"
         "❌ /cancelar   → Cancelar operación actual",
         parse_mode="Markdown",
@@ -814,6 +847,78 @@ async def _confirmar_y_guardar(query, context: ContextTypes.DEFAULT_TYPE):
 
     return ConversationHandler.END
 
+# ─────────────────────────────────────────────
+#  GENERAR Y ENVIAR PDF DE UN PEDIDO
+# ─────────────────────────────────────────────
+
+async def cmd_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = await update.message.reply_text("⏳ Cargando pedidos…")
+    try:
+        pedidos = pedidos_recientes()
+        if not pedidos:
+            await msg.edit_text("No encontré pedidos en VENTAS.")
+            return ConversationHandler.END
+
+        teclado = [
+            [InlineKeyboardButton(f"{np} — {info['cliente']} ({info['estado']})", callback_data=f"pdfpedido|{np}")]
+            for np, info in pedidos.items()
+        ]
+        await msg.edit_text(
+            "🧾 *¿De qué pedido querés el comprobante?*",
+            reply_markup=InlineKeyboardMarkup(teclado),
+            parse_mode="Markdown",
+        )
+        return PDF_ELEGIR_PEDIDO
+    except Exception as e:
+        await msg.edit_text(f"❌ Error al cargar pedidos: {e}")
+        return ConversationHandler.END
+
+async def cb_elegir_pedido_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    _, nro_pedido = query.data.split("|", 1)
+
+    if not PDF_WEBAPP_URL or not PDF_WEBAPP_SECRET:
+        await query.edit_message_text(
+            "⚠️ Falta configurar PDF_WEBAPP_URL / PDF_WEBAPP_SECRET en el hosting."
+        )
+        return ConversationHandler.END
+
+    await query.edit_message_text(f"⏳ Generando PDF del pedido {nro_pedido}…")
+    try:
+        datos     = generar_pdf_pedido(nro_pedido)
+        pdf_bytes = base64.b64decode(datos["base64"])
+        cliente   = datos.get("cliente", "")
+        total     = datos.get("total", 0)
+        telefono  = datos.get("telefono", "")
+
+        await query.message.reply_document(
+            document=io.BytesIO(pdf_bytes),
+            filename=datos.get("filename", f"Pedido_{nro_pedido}.pdf"),
+            caption=f"🧾 Comprobante — {cliente}\nTotal: {fmt_precio(total)}",
+        )
+
+        if telefono:
+            mensaje_wa = (
+                f"Hola {cliente} 🐝\n"
+                f"Te envío el comprobante de tu pedido.\n"
+                f"Total: {fmt_precio(total)}\n\n"
+                f"Gracias por tu compra 🍯"
+            )
+            url_wa = link_whatsapp(telefono, mensaje_wa)
+            await query.edit_message_text(
+                "✅ Listo. Descargá el PDF de arriba y adjuntalo en WhatsApp con el botón de compartir del celular:",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📱 Abrir WhatsApp", url=url_wa)]]),
+            )
+        else:
+            await query.edit_message_text(
+                f"✅ PDF generado para el pedido {nro_pedido}. (No encontré el teléfono del cliente para el link de WhatsApp.)"
+            )
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error al generar el PDF: {e}")
+
+    return ConversationHandler.END
+
 async def cmd_cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("❌ Operación cancelada.")
@@ -932,12 +1037,26 @@ def build_app():
         ],
     )
 
+    conv_pdf = ConversationHandler(
+        entry_points=[CommandHandler("pdf", cmd_pdf)],
+        states={
+            PDF_ELEGIR_PEDIDO: [
+                CallbackQueryHandler(cb_elegir_pedido_pdf, pattern=r"^pdfpedido\|"),
+            ],
+        },
+        fallbacks=[
+            CommandHandler("cancelar", cmd_cancelar),
+            MessageHandler(filters.COMMAND, cmd_bloqueado_por_conversacion),
+        ],
+    )
+
     app.add_handler(CommandHandler("start",      cmd_start))
     app.add_handler(CommandHandler("stock",      cmd_stock))
     app.add_handler(CommandHandler("pendientes", cmd_pendientes))
     app.add_handler(CommandHandler("clientes",   cmd_clientes))
     app.add_handler(conv)
     app.add_handler(conv_estado)
+    app.add_handler(conv_pdf)
     app.add_error_handler(_log_error_handler)
 
     return app
